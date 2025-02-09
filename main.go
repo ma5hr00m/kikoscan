@@ -152,51 +152,62 @@ func log(level int, format string, args ...interface{}) {
 
 type Config struct {
 	target       string
-	ports        []int
-	scanMethod   int
+	ports        string
+	scanMethod   string
 	infoLevel    int
 	outputFormat string
 	outputFile   string
+	logLevel     string
 	threads      int
 }
 
 func parseFlags() *Config {
-	target := flag.String("target", "", "Target IP, domain name, or CIDR range")
-	portRange := flag.String("ports", "", "Port range (e.g., '80,443' or '1-1000')")
-	scanType := flag.String("type", "tcp", "Scan type: tcp, syn, udp")
-	portLevel := flag.Int("port-level", 0, "Port scan level (0-2)")
-	infoLevel := flag.Int("info-level", 0, "Information gathering level (0-2)")
-	outputFormat := flag.String("output", "text", "Output format: text, json, csv")
-	logLevel := flag.String("log-level", "info", "Log level: debug, info, warn, error")
-	outputFile := flag.String("output-file", "", "Output file path")
-	threads := flag.Int("threads", defaultThreads, "Number of concurrent scanning threads")
-	flag.Parse()
+	config := &Config{}
 
-	setLogLevel(*logLevel)
+	flag.StringVar(&config.target, "t", "", "目标IP、域名或CIDR范围")
+	flag.StringVar(&config.ports, "p", "", "端口范围（如：80,443 或 1-1000）")
+	flag.StringVar(&config.scanMethod, "s", "tcp", "扫描类型（tcp/syn/udp）")
+	flag.IntVar(&config.infoLevel, "i", 0, "信息收集级别（0-2）")
+	flag.StringVar(&config.outputFormat, "o", "text", "输出格式（text/json/csv）")
+	flag.StringVar(&config.outputFile, "f", "", "输出文件路径")
+	flag.StringVar(&config.logLevel, "l", "info", "日志级别（debug/info/warn/error）")
+	flag.IntVar(&config.threads, "T", defaultThreads, "并发线程数")
+
+	flag.Parse()
+	setLogLevel(config.logLevel)
 
 	var ports []int
-	if *portRange != "" {
-		ports = parsePortRange(*portRange)
+	if config.ports != "" {
+		ports = parsePortRange(config.ports)
 	} else {
-		ports = getPortsByLevel(*portLevel)
+		ports = getPortsByLevel(config.infoLevel)
 	}
 
 	return &Config{
-		target:       *target,
-		ports:        ports,
-		scanMethod:   parseScanType(*scanType),
-		infoLevel:    *infoLevel,
-		outputFormat: *outputFormat,
-		outputFile:   *outputFile,
-		threads:      *threads,
+		target:       config.target,
+		ports:        portsToString(ports),
+		scanMethod:   config.scanMethod,
+		infoLevel:    config.infoLevel,
+		outputFormat: config.outputFormat,
+		outputFile:   config.outputFile,
+		logLevel:     config.logLevel,
+		threads:      config.threads,
 	}
+}
+
+func portsToString(ports []int) string {
+	var portStrings []string
+	for _, port := range ports {
+		portStrings = append(portStrings, strconv.Itoa(port))
+	}
+	return strings.Join(portStrings, ",")
 }
 
 func validateConfig(config *Config) error {
 	if config.target == "" {
 		return fmt.Errorf("please specify target using -target parameter")
 	}
-	if len(config.ports) == 0 {
+	if len(parsePortRange(config.ports)) == 0 {
 		return fmt.Errorf("no valid ports specified")
 	}
 	return nil
@@ -232,25 +243,26 @@ func parseScanType(scanType string) int {
 func main() {
 	config := parseFlags()
 	if err := validateConfig(config); err != nil {
-		log(ERROR, "%v", err)
-		return
+		fmt.Println("配置错误:", err)
+		os.Exit(1)
 	}
 
-	scanner := NewScanner(
-		config.target,
-		config.ports,
-		config.infoLevel,
-		config.scanMethod,
-		config.threads,
-	)
+	setLogLevel(config.logLevel)
+	scanType := parseScanType(config.scanMethod)
+	ports := parsePortRange(config.ports)
+	if len(ports) == 0 {
+		ports = getPortsByLevel(config.infoLevel)
+	}
 
+	scanner := NewScanner(config.target, ports, config.infoLevel, scanType, config.threads)
 	if err := scanner.Start(); err != nil {
-		log(ERROR, "failed to start scan: %v", err)
-		return
+		fmt.Println("扫描错误:", err)
+		os.Exit(1)
 	}
 
 	if err := outputResults(scanner.Results, config.outputFormat, config.outputFile, config.infoLevel); err != nil {
-		log(ERROR, "failed to output results: %v", err)
+		fmt.Println("输出结果错误:", err)
+		os.Exit(1)
 	}
 }
 
@@ -374,10 +386,11 @@ func expandTargets(target string) []string {
 		return expandCIDR(target)
 	}
 
-	ip := resolveTarget(target)
-	if ip != "" {
-		return []string{ip}
+	ips := resolveTarget(target)
+	if len(ips) > 0 {
+		return ips
 	}
+	log(ERROR, "无法解析目标: %s", target)
 	return nil
 }
 
@@ -436,22 +449,33 @@ func parsePortRange(portRange string) []int {
 	return ports
 }
 
-func resolveTarget(target string) string {
-	if net.ParseIP(target) != nil {
-		return target
+func resolveTarget(target string) []string {
+	if ip := net.ParseIP(target); ip != nil {
+		if ipv4 := ip.To4(); ipv4 != nil {
+			return []string{ipv4.String()}
+		}
+		return []string{ip.String()}
 	}
 
 	ips, err := net.LookupIP(target)
-	if err != nil || len(ips) == 0 {
-		return ""
+	if err != nil {
+		log(DEBUG, "DNS解析错误: %v", err)
+		return nil
 	}
 
+	var results []string
 	for _, ip := range ips {
 		if ipv4 := ip.To4(); ipv4 != nil {
-			return ipv4.String()
+			results = append(results, ipv4.String())
 		}
 	}
-	return ""
+
+	if len(results) == 0 {
+		log(DEBUG, "未找到IPv4地址")
+		return nil
+	}
+
+	return results
 }
 
 func getPortsByLevel(level int) []int {

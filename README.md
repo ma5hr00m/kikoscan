@@ -22,55 +22,67 @@ kikoscan 是一个轻量级的端口扫描工具，使用 Go 语言开发。
 
 ## 使用方法
 
+### 编译
+
+```bash
+# 编译
+go build -o kikoscan
+
+# Windows下运行
+.\build\kikoscan -t example.com
+
+# Linux/macOS下运行
+./build/kikoscan -t example.com
+```
+
 ### 命令行参数
 
 ```
--target      目标IP、域名或CIDR范围
--ports       端口范围（如：80,443 或 1-1000）
--type        扫描类型（tcp/syn/udp）
--port-level  端口扫描级别（0-2）
--info-level  信息收集级别（0-2）
--output      输出格式（text/json/csv）
--output-file 输出文件路径
--log-level   日志级别（debug/info/warn/error）
--threads     并发线程数（默认50）
+-t    目标IP、域名或CIDR范围
+-p    端口范围（如：80,443 或 1-1000）
+-s    扫描类型（tcp/syn/udp）
+-i    信息收集级别（0-2）
+-o    输出格式（text/json/csv）
+-f    输出文件路径
+-l    日志级别（debug/info/warn/error）
+-T    并发线程数（默认50）
 ```
 
 ### 使用示例
 
 1. 基础扫描（默认使用常用端口）
 ```bash
-go run main.go -target example.com
+go run main.go -t example.com
 ```
 
 2. 指定端口范围扫描
 ```bash
-go run main.go -target example.com -ports 80,443,8080-8090
+go run main.go -t example.com -p 80,443,8080-8090
 ```
 
 3. UDP 端口扫描
 ```bash
-go run main.go -target example.com -ports 53,161,162 -type udp
+go run main.go -t example.com -p 53,161,162 -s udp
 ```
 
 4. CIDR 范围扫描
 ```bash
-go run main.go -target 192.168.1.0/24 -ports 80,443
+go run main.go -t 192.168.1.0/24 -p 80,443
 ```
 
 5. 详细信息收集
 ```bash
-go run main.go -target example.com -info-level 1 -log-level debug
+go run main.go -t example.com -i 1 -l debug
 ```
 
 6. 输出到 JSON 文件
 ```bash
-go run main.go -target example.com -output json -output-file results.json
+go run main.go -t example.com -o json -f results.json
 ```
 
 7. 指定并发线程数
 ```bash
-go run main.go -target example.com -threads 100
+go run main.go -t example.com -T 100
 ```
 
 ### 端口扫描级别说明
